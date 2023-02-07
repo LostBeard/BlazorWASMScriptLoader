@@ -3,7 +3,6 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Text;
-using System.Collections.Immutable;
 using System.Reflection;
 
 namespace BlazorWASMScriptLoader
@@ -19,18 +18,18 @@ namespace BlazorWASMScriptLoader
             _httpClient.BaseAddress = new Uri(navigationManager.BaseUri);
         }
 
-        async Task<ImmutableArray<byte>?> GetAssemblyImage(Assembly assembly)
+        async Task<MetadataReference?> GetAssemblyMetadataReference(Assembly assembly)
         {
-            ImmutableArray<byte>? ret = null;
-            var assmeblyName = assembly.GetName().Name;
-            var assemblyUrl = $"./_framework/{assmeblyName}.dll";
+            MetadataReference? ret = null;
+            var assemblyName = assembly.GetName().Name;
+            var assemblyUrl = $"./_framework/{assemblyName}.dll";
             try
             {
                 var tmp = await _httpClient.GetAsync(assemblyUrl);
                 if (tmp.IsSuccessStatusCode)
                 {
                     var bytes = await tmp.Content.ReadAsByteArrayAsync();
-                    ret = ImmutableArray.Create(bytes);
+                    ret = MetadataReference.CreateFromImage(bytes);
                 }
             }
             catch { }
@@ -45,26 +44,23 @@ namespace BlazorWASMScriptLoader
             var parsedSyntaxTree = SyntaxFactory.ParseSyntaxTree(codeString, options);
             var appAssemblies = Assembly.GetEntryAssembly()?.GetReferencedAssemblies().Select(o => Assembly.Load(o)).ToList();
             appAssemblies.Add(typeof(object).Assembly);
-            appAssemblies.Add(typeof(Console).Assembly);
-            appAssemblies.Add(typeof(Enumerable).Assembly);
             var references = new List<MetadataReference>();
             foreach (var assembly in appAssemblies)
             {
-                var image = await GetAssemblyImage(assembly);
-                if (image == null)
+                var metadataReference = await GetAssemblyMetadataReference(assembly);
+                if (metadataReference == null)
                 {
                     // assembly may be located elsewhere ... handle if needed
                     continue;
                 }
-                var metadataReferene = MetadataReference.CreateFromImage(image);
-                references.Add(metadataReferene);
+                references.Add(metadataReference);
             }
             CSharpCompilation compilation = CSharpCompilation.Create(
                 assemblyName,
                 syntaxTrees: new[] { parsedSyntaxTree },
                 references: references,
                 options: new CSharpCompilationOptions(
-                    OutputKind.DynamicallyLinkedLibrary, 
+                    OutputKind.DynamicallyLinkedLibrary,
                     concurrentBuild: false,
                     optimizationLevel: OptimizationLevel.Debug
                 )
