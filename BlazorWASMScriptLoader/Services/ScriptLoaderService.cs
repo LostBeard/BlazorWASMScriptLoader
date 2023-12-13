@@ -79,7 +79,7 @@ namespace BlazorWASMScriptLoader
                     foreach (Diagnostic diagnostic in failures)
                     {
                         var startLinePos = diagnostic.Location.GetLineSpan().StartLinePosition;
-                        var err = $"Line: {startLinePos.Line} Col:{startLinePos.Character}) Code: {diagnostic.Id} Message: {diagnostic.GetMessage()}";
+                        var err = $"Line: {startLinePos.Line} Col:{startLinePos.Character} Code: {diagnostic.Id} Message: {diagnostic.GetMessage()}";
                         errors.AppendLine(err);
                         Console.Error.WriteLine(err);
                     }

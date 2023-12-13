@@ -43,7 +43,7 @@ namespace RoslynCompileSample
         try
         {
             // compile script to in memory dll assembly
-            var scriptAssembly = await _scriptLoaderService.CompileToDLLAssembly(_textarea);
+            var scriptAssembly = await _scriptLoaderService.CompileToDLLAssembly(_textarea, release: true);
             // use reflection to load our type (a shared project with interfaces would help here ... )
             Type type = scriptAssembly.GetType("RoslynCompileSample.Writer");
             // create an instance
