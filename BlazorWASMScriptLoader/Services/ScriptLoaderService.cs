@@ -32,7 +32,10 @@ namespace BlazorWASMScriptLoader
                     ret = MetadataReference.CreateFromImage(bytes);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"metadataReference not loaded: {assembly} {ex.Message}");
+            }
             return ret;
         }
 
