@@ -9,6 +9,9 @@
 <div>
     <textarea cols="50" rows="25" @bind="_textarea" @bind:event="oninput"></textarea>
 </div>
+<div>
+    <pre>@_errorValue</pre>
+</div>
 
 @code {
 
@@ -16,6 +19,7 @@
     ScriptLoaderService _scriptLoaderService { get; set; }
 
     string _returnValue = "";
+    string _errorValue = "";
 
     string _textarea = @"
 using System;
@@ -34,13 +38,22 @@ namespace RoslynCompileSample
 ";
     async Task CompileAndRun()
     {
-        // compile script to in memory dll assembly
-        var scriptAssembly = await _scriptLoaderService.CompileToDLLAssembly(_textarea);
-        // use relflection to load our type (a shared porject with interfaces wqould help here ... )
-        Type type = scriptAssembly.GetType("RoslynCompileSample.Writer");
-        // create an instance
-        object obj = Activator.CreateInstance(type);
-        // call our test function
-        _returnValue = (string)type.InvokeMember("Write", BindingFlags.Default | BindingFlags.InvokeMethod, null, obj, new object[] { "Hello World" });
+        _returnValue = "";
+        _errorValue = "";
+        try
+        {
+            // compile script to in memory dll assembly
+            var scriptAssembly = await _scriptLoaderService.CompileToDLLAssembly(_textarea);
+            // use reflection to load our type (a shared project with interfaces would help here ... )
+            Type type = scriptAssembly.GetType("RoslynCompileSample.Writer");
+            // create an instance
+            object obj = Activator.CreateInstance(type);
+            // call our test function
+            _returnValue = (string)type.InvokeMember("Write", BindingFlags.Default | BindingFlags.InvokeMethod, null, obj, new object[] { "Hello World" });
+        }
+        catch (Exception ex)
+        {
+            _errorValue = ex.Message;
+        }
     }
 }

@@ -4,6 +4,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Text;
 using System.Reflection;
+using System.Text;
 
 namespace BlazorWASMScriptLoader
 {
@@ -39,13 +40,13 @@ namespace BlazorWASMScriptLoader
             return ret;
         }
 
-        public async Task<Assembly?> CompileToDLLAssembly(string sourceCode, string assemblyName = "")
+        public async Task<Assembly> CompileToDLLAssembly(string sourceCode, string assemblyName = "", bool release = false)
         {
             if (string.IsNullOrEmpty(assemblyName)) assemblyName = Path.GetRandomFileName();
             var codeString = SourceText.From(sourceCode);
             var options = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.CSharp11);
             var parsedSyntaxTree = SyntaxFactory.ParseSyntaxTree(codeString, options);
-            var appAssemblies = Assembly.GetEntryAssembly()?.GetReferencedAssemblies().Select(o => Assembly.Load(o)).ToList();
+            var appAssemblies = Assembly.GetEntryAssembly()!.GetReferencedAssemblies().Select(o => Assembly.Load(o)).ToList();
             appAssemblies.Add(typeof(object).Assembly);
             var references = new List<MetadataReference>();
             foreach (var assembly in appAssemblies)
@@ -65,7 +66,7 @@ namespace BlazorWASMScriptLoader
                 options: new CSharpCompilationOptions(
                     OutputKind.DynamicallyLinkedLibrary,
                     concurrentBuild: false,
-                    optimizationLevel: OptimizationLevel.Debug
+                    optimizationLevel: release ? OptimizationLevel.Release : OptimizationLevel.Debug
                 )
             );
             using (var ms = new MemoryStream())
@@ -73,15 +74,16 @@ namespace BlazorWASMScriptLoader
                 EmitResult result = compilation.Emit(ms);
                 if (!result.Success)
                 {
-                    IEnumerable<Diagnostic> failures = result.Diagnostics.Where(diagnostic =>
-                        diagnostic.IsWarningAsError ||
-                        diagnostic.Severity == DiagnosticSeverity.Error);
-
+                    var errors = new StringBuilder();
+                    IEnumerable<Diagnostic> failures = result.Diagnostics.Where(diagnostic => diagnostic.IsWarningAsError || diagnostic.Severity == DiagnosticSeverity.Error);
                     foreach (Diagnostic diagnostic in failures)
                     {
-                        Console.Error.WriteLine("{0}: {1}", diagnostic.Id, diagnostic.GetMessage());
+                        var startLinePos = diagnostic.Location.GetLineSpan().StartLinePosition;
+                        var err = $"Line: {startLinePos.Line} Col:{startLinePos.Character}) Code: {diagnostic.Id} Message: {diagnostic.GetMessage()}";
+                        errors.AppendLine(err);
+                        Console.Error.WriteLine(err);
                     }
-                    return null;
+                    throw new Exception(errors.ToString());
                 }
                 else
                 {
