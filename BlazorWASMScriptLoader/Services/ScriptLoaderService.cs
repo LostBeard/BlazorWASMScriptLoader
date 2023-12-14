@@ -6,92 +6,63 @@ using Microsoft.CodeAnalysis.Text;
 using System.Reflection;
 using System.Text;
 
-namespace BlazorWASMScriptLoader
+namespace BlazorWASMScriptLoader;
+
+// requires "Microsoft.CodeAnalysis.CSharp"
+// can be added via nuget
+public class ScriptLoaderService(NavigationManager navigationManager)
 {
-    // requires "Microsoft.CodeAnalysis.CSharp"
-    // can be added via nuget
-    public class ScriptLoaderService
+    HttpClient _httpClient { get; } = new() { BaseAddress = new(navigationManager.BaseUri) };
+
+
+    public async Task<Assembly> CompileToDLLAssembly(string sourceCode, string assemblyName = "", bool release = false)
     {
-        HttpClient _httpClient = new HttpClient();
-
-        public ScriptLoaderService(NavigationManager navigationManager)
+        if (string.IsNullOrEmpty(assemblyName)) assemblyName = Path.GetRandomFileName();
+        var codeString = SourceText.From(sourceCode);
+        var options = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.CSharp12);
+        var parsedSyntaxTree = SyntaxFactory.ParseSyntaxTree(codeString, options);
+        var appAssemblies = Assembly.GetEntryAssembly()!.GetReferencedAssemblies().Select(Assembly.Load).Append(typeof(object).Assembly);
+        var references = new List<MetadataReference>();
+        foreach (var assembly in appAssemblies)
         {
-            _httpClient.BaseAddress = new Uri(navigationManager.BaseUri);
-        }
-
-        async Task<MetadataReference?> GetAssemblyMetadataReference(Assembly assembly)
-        {
-            MetadataReference? ret = null;
-            var assemblyName = assembly.GetName().Name;
-            var assemblyUrl = $"./_framework/{assemblyName}.dll";
             try
             {
-                var tmp = await _httpClient.GetAsync(assemblyUrl);
+                var tmp = await _httpClient.GetAsync($"./_framework/{assembly.GetName().Name}.dll");
                 if (tmp.IsSuccessStatusCode)
-                {
-                    var bytes = await tmp.Content.ReadAsByteArrayAsync();
-                    ret = MetadataReference.CreateFromImage(bytes);
-                }
+                    references.Add(MetadataReference.CreateFromImage(await tmp.Content.ReadAsByteArrayAsync()));
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"metadataReference not loaded: {assembly} {ex.Message}");
+                // assembly may be located elsewhere ... handle if needed
             }
-            return ret;
         }
-
-        public async Task<Assembly> CompileToDLLAssembly(string sourceCode, string assemblyName = "", bool release = false)
-        {
-            if (string.IsNullOrEmpty(assemblyName)) assemblyName = Path.GetRandomFileName();
-            var codeString = SourceText.From(sourceCode);
-            var options = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.CSharp11);
-            var parsedSyntaxTree = SyntaxFactory.ParseSyntaxTree(codeString, options);
-            var appAssemblies = Assembly.GetEntryAssembly()!.GetReferencedAssemblies().Select(o => Assembly.Load(o)).ToList();
-            appAssemblies.Add(typeof(object).Assembly);
-            var references = new List<MetadataReference>();
-            foreach (var assembly in appAssemblies)
-            {
-                var metadataReference = await GetAssemblyMetadataReference(assembly);
-                if (metadataReference == null)
-                {
-                    // assembly may be located elsewhere ... handle if needed
-                    continue;
-                }
-                references.Add(metadataReference);
-            }
-            CSharpCompilation compilation = CSharpCompilation.Create(
-                assemblyName,
-                syntaxTrees: new[] { parsedSyntaxTree },
-                references: references,
-                options: new CSharpCompilationOptions(
-                    OutputKind.DynamicallyLinkedLibrary,
-                    concurrentBuild: false,
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            assemblyName,
+            syntaxTrees: [parsedSyntaxTree],
+            references: references,
+            options: new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                concurrentBuild: false,
                     optimizationLevel: release ? OptimizationLevel.Release : OptimizationLevel.Debug
-                )
-            );
-            using (var ms = new MemoryStream())
+            )
+        );
+        using var ms = new MemoryStream();
+        EmitResult result = compilation.Emit(ms);
+        if (!result.Success)
+        {
+            var errors = new StringBuilder();
+            IEnumerable<Diagnostic> failures = result.Diagnostics.Where(diagnostic => diagnostic.IsWarningAsError || diagnostic.Severity == DiagnosticSeverity.Error);
+            foreach (Diagnostic diagnostic in failures)
             {
-                EmitResult result = compilation.Emit(ms);
-                if (!result.Success)
-                {
-                    var errors = new StringBuilder();
-                    IEnumerable<Diagnostic> failures = result.Diagnostics.Where(diagnostic => diagnostic.IsWarningAsError || diagnostic.Severity == DiagnosticSeverity.Error);
-                    foreach (Diagnostic diagnostic in failures)
-                    {
-                        var startLinePos = diagnostic.Location.GetLineSpan().StartLinePosition;
-                        var err = $"Line: {startLinePos.Line} Col:{startLinePos.Character} Code: {diagnostic.Id} Message: {diagnostic.GetMessage()}";
-                        errors.AppendLine(err);
-                        Console.Error.WriteLine(err);
-                    }
-                    throw new Exception(errors.ToString());
-                }
-                else
-                {
-                    ms.Seek(0, SeekOrigin.Begin);
-                    var assembly = Assembly.Load(ms.ToArray());
-                    return assembly;
-                }
+                var startLinePos = diagnostic.Location.GetLineSpan().StartLinePosition;
+                var err = $"Line: {startLinePos.Line} Col:{startLinePos.Character} Code: {diagnostic.Id} Message: {diagnostic.GetMessage()}";
+                errors.AppendLine(err);
+                Console.Error.WriteLine(err);
             }
+            throw new Exception(errors.ToString());
         }
+        ms.Seek(0, SeekOrigin.Begin);
+        return Assembly.Load(ms.ToArray());
     }
 }
