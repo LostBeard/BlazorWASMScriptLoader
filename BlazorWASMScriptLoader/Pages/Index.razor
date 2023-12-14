@@ -2,7 +2,6 @@
 
 @using System.Reflection
 
-<h1>Script result: @_returnValue</h1>
 <div>
     <button onclick="@CompileAndRun">Compile And Run</button>
 </div>
@@ -10,7 +9,9 @@
     <textarea cols="50" rows="25" @bind="_textarea" @bind:event="oninput"></textarea>
 </div>
 <div>
-    <pre>@_errorValue</pre>
+    <pre>@(new { _scriptResult })</pre>
+    <pre>@(new { _returnValue })</pre>
+    <pre>@(new { _errorValue })</pre>
 </div>
 
 @code {
@@ -20,19 +21,19 @@
 
     string _returnValue = "";
     string _errorValue = "";
+    object? _scriptResult = null;
 
     string _textarea = @"
 using System;
 
-namespace RoslynCompileSample
+return ""sc_"" + DateTime.Now;
+
+public class Writer
 {
-    public class Writer
+    public string Write(string message)
     {
-        public string Write(string message)
-        {
-            var ret = message + DateTime.Now;
-            return ret;
-        }
+        var ret = message + DateTime.Now;
+        return ret;
     }
 }
 ";
@@ -43,9 +44,9 @@ namespace RoslynCompileSample
         try
         {
             // compile script to in memory dll assembly
-            var scriptAssembly = await _scriptLoaderService.CompileToDLLAssembly(_textarea, release: true);
+            (var scriptAssembly, _scriptResult) = await _scriptLoaderService.CompileToDLLAssembly(_textarea, release: true);
             // use reflection to load our type (a shared project with interfaces would help here ... )
-            Type type = scriptAssembly.GetType("RoslynCompileSample.Writer");
+            Type type = scriptAssembly.GetType("Script+Writer");
             // create an instance
             object obj = Activator.CreateInstance(type);
             // call our test function

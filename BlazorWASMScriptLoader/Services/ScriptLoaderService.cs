@@ -2,7 +2,6 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
-using Microsoft.CodeAnalysis.Text;
 using System.Reflection;
 using System.Text;
 
@@ -13,38 +12,41 @@ namespace BlazorWASMScriptLoader;
 public class ScriptLoaderService(NavigationManager navigationManager)
 {
     HttpClient _httpClient { get; } = new() { BaseAddress = new(navigationManager.BaseUri) };
+    readonly ParseOptions opt = CSharpParseOptions.Default.WithKind(SourceCodeKind.Script);
+    List<MetadataReference>? references = null;
 
-
-    public async Task<Assembly> CompileToDLLAssembly(string sourceCode, string assemblyName = "", bool release = false)
+    public async Task<(Assembly, object)> CompileToDLLAssembly(string sourceCode, string assemblyName = "", bool release = false)
     {
         if (string.IsNullOrEmpty(assemblyName)) assemblyName = Path.GetRandomFileName();
-        var codeString = SourceText.From(sourceCode);
-        var options = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.CSharp12);
-        var parsedSyntaxTree = SyntaxFactory.ParseSyntaxTree(codeString, options);
-        var appAssemblies = Assembly.GetEntryAssembly()!.GetReferencedAssemblies().Select(Assembly.Load).Append(typeof(object).Assembly);
-        var references = new List<MetadataReference>();
-        foreach (var assembly in appAssemblies)
+
+        async Task<List<MetadataReference>> GetReferences()
         {
-            try
+            var appAssemblies = Assembly.GetEntryAssembly()!.GetReferencedAssemblies().Select(Assembly.Load).Append(typeof(object).Assembly);
+            var references = new List<MetadataReference>();
+            foreach (var assembly in appAssemblies)
             {
-                var tmp = await _httpClient.GetAsync($"./_framework/{assembly.GetName().Name}.dll");
-                if (tmp.IsSuccessStatusCode)
-                    references.Add(MetadataReference.CreateFromImage(await tmp.Content.ReadAsByteArrayAsync()));
+                try
+                {
+                    using var tmp = await _httpClient.GetStreamAsync($"./_framework/{assembly.GetName().Name}.dll");
+                    references.Add(MetadataReference.CreateFromStream(tmp));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"metadataReference not loaded: {assembly} {ex.Message}");
+                    // assembly may be located elsewhere ... handle if needed
+                }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"metadataReference not loaded: {assembly} {ex.Message}");
-                // assembly may be located elsewhere ... handle if needed
-            }
+            return references;
         }
-        CSharpCompilation compilation = CSharpCompilation.Create(
+
+        CSharpCompilation compilation = CSharpCompilation.CreateScriptCompilation(
             assemblyName,
-            syntaxTrees: [parsedSyntaxTree],
-            references: references,
+            syntaxTree: SyntaxFactory.ParseSyntaxTree(sourceCode, opt),
+            references: references ??= await GetReferences(),
             options: new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 concurrentBuild: false,
-                    optimizationLevel: release ? OptimizationLevel.Release : OptimizationLevel.Debug
+                optimizationLevel: release ? OptimizationLevel.Release : OptimizationLevel.Debug
             )
         );
         using var ms = new MemoryStream();
@@ -63,6 +65,13 @@ public class ScriptLoaderService(NavigationManager navigationManager)
             throw new Exception(errors.ToString());
         }
         ms.Seek(0, SeekOrigin.Begin);
-        return Assembly.Load(ms.ToArray());
+        var load = Assembly.Load(ms.ToArray());
+        var entryPoint = load.EntryPoint ?? compilation.GetEntryPoint(default) switch //load.EntryPoint is output null.
+        {
+            { ContainingNamespace.MetadataName: var namespace_name, ContainingType.MetadataName: var class_name, MetadataName: var method_name }
+                => load.GetType($"{namespace_name}.{class_name}")?.GetMethod(method_name)
+        };
+        var submission = entryPoint!.CreateDelegate<Func<object[], Task<object>>>();
+        return (load, await submission([null!, null!]));
     }
 }
