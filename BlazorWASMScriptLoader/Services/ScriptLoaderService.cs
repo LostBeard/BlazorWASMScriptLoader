@@ -19,10 +19,12 @@ namespace BlazorWASMScriptLoader
             _httpClient.BaseAddress = new Uri(navigationManager.BaseUri);
         }
 
-        async Task<MetadataReference?> GetAssemblyMetadataReference(Assembly assembly)
+        Dictionary<string, MetadataReference> MetadataReferenceCache = new Dictionary<string, MetadataReference>();
+        async Task<MetadataReference> GetAssemblyMetadataReference(Assembly assembly)
         {
             MetadataReference? ret = null;
             var assemblyName = assembly.GetName().Name;
+            if (MetadataReferenceCache.TryGetValue(assemblyName, out ret)) return ret;
             var assemblyUrl = $"./_framework/{assemblyName}.dll";
             try
             {
@@ -37,14 +39,16 @@ namespace BlazorWASMScriptLoader
             {
                 Console.WriteLine($"metadataReference not loaded: {assembly} {ex.Message}");
             }
+            if (ret == null) throw new Exception("ReferenceMetadata nto found. If using .Net 8, <WasmEnableWebcil>false</WasmEnableWebcil> must be set in the project .csproj file.");
+            MetadataReferenceCache[assemblyName] = ret;
             return ret;
         }
 
-        public async Task<Assembly> CompileToDLLAssembly(string sourceCode, string assemblyName = "", bool release = false)
+        public async Task<Assembly> CompileToDLLAssembly(string sourceCode, string assemblyName = "", bool release = true, SourceCodeKind sourceCodeKind = SourceCodeKind.Regular)
         {
             if (string.IsNullOrEmpty(assemblyName)) assemblyName = Path.GetRandomFileName();
             var codeString = SourceText.From(sourceCode);
-            var options = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.CSharp11);
+            var options = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.CSharp11).WithKind(sourceCodeKind);
             var parsedSyntaxTree = SyntaxFactory.ParseSyntaxTree(codeString, options);
             var appAssemblies = Assembly.GetEntryAssembly()!.GetReferencedAssemblies().Select(o => Assembly.Load(o)).ToList();
             appAssemblies.Add(typeof(object).Assembly);
@@ -52,23 +56,35 @@ namespace BlazorWASMScriptLoader
             foreach (var assembly in appAssemblies)
             {
                 var metadataReference = await GetAssemblyMetadataReference(assembly);
-                if (metadataReference == null)
-                {
-                    // assembly may be located elsewhere ... handle if needed
-                    continue;
-                }
                 references.Add(metadataReference);
             }
-            CSharpCompilation compilation = CSharpCompilation.Create(
+            CSharpCompilation compilation;
+            if (sourceCodeKind == SourceCodeKind.Script)
+            {
+                compilation = CSharpCompilation.CreateScriptCompilation(
+                assemblyName,
+                syntaxTree: parsedSyntaxTree,
+                references: references,
+                options: new CSharpCompilationOptions(
+                        OutputKind.DynamicallyLinkedLibrary,
+                        concurrentBuild: false,
+                        optimizationLevel: release ? OptimizationLevel.Release : OptimizationLevel.Debug
+                    )
+                );
+            }
+            else
+            {
+                compilation = CSharpCompilation.Create(
                 assemblyName,
                 syntaxTrees: new[] { parsedSyntaxTree },
                 references: references,
                 options: new CSharpCompilationOptions(
-                    OutputKind.DynamicallyLinkedLibrary,
-                    concurrentBuild: false,
-                    optimizationLevel: release ? OptimizationLevel.Release : OptimizationLevel.Debug
-                )
-            );
+                        OutputKind.DynamicallyLinkedLibrary,
+                        concurrentBuild: false,
+                        optimizationLevel: release ? OptimizationLevel.Release : OptimizationLevel.Debug
+                    )
+                );
+            }
             using (var ms = new MemoryStream())
             {
                 EmitResult result = compilation.Emit(ms);
