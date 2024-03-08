@@ -15,4 +15,8 @@
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.8.0" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<None Include="..\LICENSE.txt" Pack="true" PackagePath="" />
+		<None Include="..\README.md" Pack="true" PackagePath="" />
+	</ItemGroup>
 </Project>
