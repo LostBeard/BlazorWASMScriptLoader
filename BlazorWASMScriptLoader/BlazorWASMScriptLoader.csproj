@@ -1,18 +1,30 @@
-<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+﻿<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
 
 	<PropertyGroup>
-		<TargetFramework>net8.0</TargetFramework>
+		<TargetFramework>net9.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<CompressionEnabled>false</CompressionEnabled>
-		<WasmEnableWebcil>false</WasmEnableWebcil>
+		<PublishTrimmed>false</PublishTrimmed>
+		<WasmEnableWebcil>true</WasmEnableWebcil>
 	</PropertyGroup>
 
+	<ItemGroup Condition=" '$(TargetFramework)' == 'net8.0' ">
+		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.11" />
+		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.11" PrivateAssets="all" />
+	</ItemGroup>
+
+	<ItemGroup Condition=" '$(TargetFramework)' == 'net9.0' ">
+		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="9.0.2" />
+		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="9.0.2" PrivateAssets="all" />
+	</ItemGroup>
+
 	<ItemGroup>
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.0" />
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.0" PrivateAssets="all" />
-		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
-		<PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.8.0" />
+		<PackageReference Include="MetadataReferenceService.BlazorWasm" Version="0.0.1" />
+		<PackageReference Include="System.Runtime.Loader" Version="4.3.0" />
+		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0-2.24555.1" />
+		<PackageReference Include="Microsoft.CodeAnalysis.CSharp.Features" Version="4.13.0-2.24555.1" />
+		<PackageReference Include="Microsoft.CodeAnalysis.Razor" Version="6.0.36" />
 	</ItemGroup>
 
 	<ItemGroup>

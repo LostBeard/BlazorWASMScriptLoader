@@ -1,10 +1,11 @@
 ﻿@page "/"
-
+@using Microsoft.CodeAnalysis
 @using System.Reflection
 
 <h1>Script result: @_returnValue</h1>
 <div>
-    <button onclick="@CompileAndRun">Compile And Run</button>
+    <button @onclick="() => CompileAndRun(SourceCodeKind.Regular)">Compile And Run</button>
+    <button @onclick="() => CompileAndRun(SourceCodeKind.Script)">Compile And Run Script</button>
 </div>
 <div>
     <textarea cols="50" rows="25" @bind="_textarea" @bind:event="oninput"></textarea>
@@ -24,32 +25,37 @@
     string _textarea = @"
 using System;
 
-namespace RoslynCompileSample
+public class Writer
 {
-    public class Writer
+    public string Write(string message)
     {
-        public string Write(string message)
-        {
-            var ret = message + DateTime.Now;
-            return ret;
-        }
+        var ret = message + DateTime.Now;
+        return ret;
     }
 }
+
 ";
-    async Task CompileAndRun()
+    async Task CompileAndRun(SourceCodeKind sourceCodeKind)
     {
         _returnValue = "";
         _errorValue = "";
         try
         {
             // compile script to in memory dll assembly
-            var scriptAssembly = await _scriptLoaderService.CompileToDLLAssembly(_textarea, release: true);
+            var scriptAssembly = await _scriptLoaderService.CompileToDLLAssembly(_textarea, release: true, sourceCodeKind: sourceCodeKind);
+            var exportedTypes = scriptAssembly.ExportedTypes.ToArray();
             // use reflection to load our type (a shared project with interfaces would help here ... )
-            Type type = scriptAssembly.GetType("RoslynCompileSample.Writer");
+            var entryPoint = scriptAssembly.EntryPoint;
+            Type type = scriptAssembly.GetType(sourceCodeKind switch
+            {
+                SourceCodeKind.Regular => "Writer",
+                SourceCodeKind.Script => "Script+Writer",
+            })!;
+            var members = type.GetMembers(BindingFlags.Public | BindingFlags.Instance);
             // create an instance
-            object obj = Activator.CreateInstance(type);
+            object obj = Activator.CreateInstance(type)!;
             // call our test function
-            _returnValue = (string)type.InvokeMember("Write", BindingFlags.Default | BindingFlags.InvokeMethod, null, obj, new object[] { "Hello World" });
+            _returnValue = type.InvokeMember("Write", BindingFlags.Default | BindingFlags.InvokeMethod, null, obj, new object[] { "Hello World" }) as string;
         }
         catch (Exception ex)
         {

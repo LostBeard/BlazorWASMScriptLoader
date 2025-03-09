@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Components;
+﻿using MetadataReferenceService.Abstractions.Types;
+using MetadataReferenceService.BlazorWasm;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
@@ -12,38 +13,11 @@ namespace BlazorWASMScriptLoader
     // can be added via nuget
     public class ScriptLoaderService
     {
-        HttpClient _httpClient = new HttpClient();
-
-        public ScriptLoaderService(NavigationManager navigationManager)
+        BlazorWasmMetadataReferenceService BlazorWasmMetadataReferenceService;
+        public ScriptLoaderService(BlazorWasmMetadataReferenceService blazorWasmMetadataReferenceService)
         {
-            _httpClient.BaseAddress = new Uri(navigationManager.BaseUri);
+            BlazorWasmMetadataReferenceService = blazorWasmMetadataReferenceService;
         }
-
-        Dictionary<string, MetadataReference> MetadataReferenceCache = new Dictionary<string, MetadataReference>();
-        async Task<MetadataReference> GetAssemblyMetadataReference(Assembly assembly)
-        {
-            MetadataReference? ret = null;
-            var assemblyName = assembly.GetName().Name;
-            if (MetadataReferenceCache.TryGetValue(assemblyName, out ret)) return ret;
-            var assemblyUrl = $"./_framework/{assemblyName}.dll";
-            try
-            {
-                var tmp = await _httpClient.GetAsync(assemblyUrl);
-                if (tmp.IsSuccessStatusCode)
-                {
-                    var bytes = await tmp.Content.ReadAsByteArrayAsync();
-                    ret = MetadataReference.CreateFromImage(bytes);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"metadataReference not loaded: {assembly} {ex.Message}");
-            }
-            if (ret == null) throw new Exception("ReferenceMetadata nto found. If using .Net 8, <WasmEnableWebcil>false</WasmEnableWebcil> must be set in the project .csproj file.");
-            MetadataReferenceCache[assemblyName] = ret;
-            return ret;
-        }
-
         public async Task<Assembly> CompileToDLLAssembly(string sourceCode, string assemblyName = "", bool release = true, SourceCodeKind sourceCodeKind = SourceCodeKind.Regular)
         {
             if (string.IsNullOrEmpty(assemblyName)) assemblyName = Path.GetRandomFileName();
@@ -55,7 +29,7 @@ namespace BlazorWASMScriptLoader
             var references = new List<MetadataReference>();
             foreach (var assembly in appAssemblies)
             {
-                var metadataReference = await GetAssemblyMetadataReference(assembly);
+                var metadataReference = await BlazorWasmMetadataReferenceService.CreateAsync(AssemblyDetails.FromAssembly(assembly));
                 references.Add(metadataReference);
             }
             CSharpCompilation compilation;
